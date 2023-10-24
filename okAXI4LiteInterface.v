@@ -67,6 +67,7 @@ module okAXI4LiteInterface
     (* X_INTERFACE_INFO = "opalkelly.com:interface:btpipein:1.0 btpipein_DATA EP_WRITE" *)
     input   wire                    EP_WRITE,
 
+    /*
     // BTPIPEOUT
     (* X_INTERFACE_INFO = "opalkelly.com:interface:btpipeout:1.0 btpipeout_READ EP_DATAIN" *)
     output  reg [31:0]              EP_DATAIN_DATAIN = 32'd0,
@@ -74,6 +75,7 @@ module okAXI4LiteInterface
     output  reg                     EP_READY_DATAIN = 1'b0,
     (* X_INTERFACE_INFO = "opalkelly.com:interface:btpipeout:1.0 btpipeout_READ EP_READ" *)
     input   wire                    EP_READ_DATAIN,
+    */
     
     
     // WIREOUT
@@ -83,8 +85,9 @@ module okAXI4LiteInterface
     
     // WIREOUT
     // @todo: remove this. BRESP stands for burst response. Commonly on AXI4-lite slaves this is tied to 0 (OKAY)
-    (* X_INTERFACE_INFO = "opalkelly.com:interface:wireout:1.0 wireout_BRESP EP_DATAIN" *)
-    output  reg [1:0]               EP_BRESP_WIREOUT = 2'd0,
+    // @todo: or not- it seems that the BRESP is used to indicate the status of the write transaction in the JESD204 example TB
+    //(* X_INTERFACE_INFO = "opalkelly.com:interface:wireout:1.0 wireout_BRESP EP_DATAIN" *)
+    //output  reg [1:0]               EP_BRESP_WIREOUT = 2'd0,
     
     
     
@@ -103,7 +106,7 @@ module okAXI4LiteInterface
     (* X_INTERFACE_INFO = "xilinx.com:interface:aximm:1.0 m_axi WDATA" *)
     output  reg [DATA_WIDTH-1:0]    m_axi_wdata     = {DATA_WIDTH{1'b0}},   // Write data
     (* X_INTERFACE_INFO = "xilinx.com:interface:aximm:1.0 m_axi WSTRB" *)
-    output  reg  [3:0]              m_axi_wstrb     = 4'hF,              // Write strobes (optional) ------------ HARDCODED FIX SIZE
+    output  wire  [DATA_WIDTH/8-1:0] m_axi_wstrb,                           // Write strobes (optional) ------------ HARDCODED FIX SIZE
     (* X_INTERFACE_INFO = "xilinx.com:interface:aximm:1.0 m_axi WVALID" *)
     output  reg                     m_axi_wvalid    = 1'b0,                 // Write valid
     (* X_INTERFACE_INFO = "xilinx.com:interface:aximm:1.0 m_axi WREADY" *)
@@ -127,7 +130,9 @@ module okAXI4LiteInterface
     (* X_INTERFACE_INFO = "xilinx.com:interface:aximm:1.0 m_axi RVALID" *)
     input   wire                    m_axi_rvalid,                           // Read valid
     (* X_INTERFACE_INFO = "xilinx.com:interface:aximm:1.0 m_axi RREADY" *)
-    output  reg                     m_axi_rready    = 1'b0                  // Read ready
+    output  reg                     m_axi_rready    = 1'b0,                  // Read ready
+    
+    output  wire                    activity_mon
 );
 
 // when the read high is asserted, start counting up to 4
@@ -135,6 +140,7 @@ module okAXI4LiteInterface
 // the second 32 bits transferred are the write data,
 // the third 32 bits transferred are the read address
 
+assign      activity_mon    = m_axi_wvalid | ~m_axi_aresetn;
 assign      m_axi_aclk      = okClkIn;
 
 localparam  WORD_LENGTH     = 32;
@@ -148,15 +154,18 @@ localparam  MAX_RX_WORDS_FROM_OK = 4,
             
 reg [3:0] state = STATE_IDLE;
 reg [3:0] next_state = STATE_IDLE;
-reg     [$clog2(MAX_RX_WORDS_FROM_OK)-1:0]      counter_rx_from_ok;
-reg     [$clog2(CLOCK_CYCLES_AXI_RESET)-1:0]    counter_resetting;
+reg     [$clog2(MAX_RX_WORDS_FROM_OK):0]      counter_rx_from_ok;
+reg     [$clog2(CLOCK_CYCLES_AXI_RESET):0]    counter_resetting;
 
 reg reset_flag          = 0,
     read_flag           = 0,
     write_flag          = 0,
     write_response_flag = 0,
-    read_address_flag   = 0,
-    ok_reading_flag     = 0;
+    read_address_flag   = 0;
+    //ok_reading_flag     = 0;
+
+// make the wstrb 4 bits high when the wvalid signal is true
+assign m_axi_wstrb = m_axi_wvalid ? {DATA_WIDTH{1'b1}} : {DATA_WIDTH{1'b0}};
 
 localparam  reset_index = 0,
             write_index = 1,
@@ -248,6 +257,7 @@ begin
                 endcase
             end
             
+            /*
             if (EP_READY_DATAIN & EP_READ_DATAIN)
                 ok_reading_flag <= 1'b1;
                 
@@ -257,6 +267,7 @@ begin
                 EP_READY_DATAIN <= 1'b0;
                 EP_DATAIN_DATAIN <= 32'd0;
             end
+            */
             
             counter_resetting   <= 0;
             m_axi_aresetn       <= 1'b1;
@@ -288,10 +299,10 @@ begin
             m_axi_bready        <= 1'b0;
             //m_axi_wstrb         <= 4'h0;
             
-            EP_READY_DATAIN     <= 1'b0;
+            //EP_READY_DATAIN     <= 1'b0;
             
-            EP_DATAIN_DATAIN    <= 32'd0;
-            EP_BRESP_WIREOUT    <= 32'd0;
+            //EP_DATAIN_DATAIN    <= 32'd0;
+            //EP_BRESP_WIREOUT    <= 32'd0;
         end
         
         STATE_AXI_RXTX:
@@ -312,14 +323,14 @@ begin
             else
             begin
                 m_axi_wvalid <= write_flag;
-                //m_axi_wstrb  <= write_flag ? 4'hF : 4'h0;
+                //m_axi_wstrb  <= write_flag ? 4'hf : 4'h0;
             end
             // handle write response flags
             if (m_axi_bvalid & m_axi_bready)
             begin
                 m_axi_bready        <= 1'b0;
                 write_response_flag <= 1'b0;
-                EP_BRESP_WIREOUT    <= m_axi_bresp;
+                //EP_BRESP_WIREOUT    <= m_axi_bresp;
             end
             else
                 m_axi_bready <= write_response_flag;
@@ -340,8 +351,8 @@ begin
                 begin
                     m_axi_rready        <= 1'b1;
                     
-                    EP_DATAIN_DATAIN    <= m_axi_rdata;
-                    EP_READY_DATAIN     <= 1'b1;
+                    //EP_DATAIN_DATAIN    <= m_axi_rdata;
+                    //EP_READY_DATAIN     <= 1'b1;
                     EP_DATAIN_WIREOUT   <= m_axi_rdata;
                     
                     read_flag           <= 1'b0;
